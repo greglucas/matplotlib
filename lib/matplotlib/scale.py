@@ -461,54 +461,44 @@ class FuncScaleLog(LogScale):
 class SymmetricalLogTransform(Transform):
     input_dims = output_dims = 1
 
-    def __init__(self, base, linthresh, linscale):
+    def __init__(self, base, threshold):
         Transform.__init__(self)
         self.base = base
-        self.linthresh = linthresh
-        self.linscale = linscale
-        self._linscale_adj = (linscale / (1.0 - self.base ** -1))
-        self._log_base = np.log(base)
+        self.threshold = threshold
+        self._logTransform = LogTransform(base)
+
+    def __str__(self):
+        return "{}(base={}, threshold={})".format(type(self).__name__,
+                                                  self.base, self.threshold)
 
     def transform_non_affine(self, a):
-        abs_a = np.abs(a)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            out = np.sign(a) * self.linthresh * (
-                self._linscale_adj +
-                np.log(abs_a / self.linthresh) / self._log_base)
-            inside = abs_a <= self.linthresh
-        out[inside] = a[inside] * self._linscale_adj
+        abs_a = np.abs(a)/self.threshold
+        out = np.sign(a) * self._logTransform.transform_non_affine(abs_a)
+        # Force the values that were less than threshold to 0
+        out[abs_a <= 1] = 0
         return out
 
     def inverted(self):
-        return InvertedSymmetricalLogTransform(self.base, self.linthresh,
-                                               self.linscale)
+        return InvertedSymmetricalLogTransform(self.base, self.threshold)
 
 
 class InvertedSymmetricalLogTransform(Transform):
     input_dims = output_dims = 1
 
-    def __init__(self, base, linthresh, linscale):
+    def __init__(self, base, threshold):
         Transform.__init__(self)
-        symlog = SymmetricalLogTransform(base, linthresh, linscale)
         self.base = base
-        self.linthresh = linthresh
-        self.invlinthresh = symlog.transform(linthresh)
-        self.linscale = linscale
-        self._linscale_adj = (linscale / (1.0 - self.base ** -1))
+        self.threshold = threshold
+
+    def __str__(self):
+        return "{}(base={}, threshold={})".format(type(self).__name__,
+                                                  self.base, self.threshold)
 
     def transform_non_affine(self, a):
-        abs_a = np.abs(a)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            out = np.sign(a) * self.linthresh * (
-                np.power(self.base,
-                         abs_a / self.linthresh - self._linscale_adj))
-            inside = abs_a <= self.invlinthresh
-        out[inside] = a[inside] / self._linscale_adj
-        return out
+        return np.sign(a) * self.threshold * ma.power(self.base, np.abs(a))
 
     def inverted(self):
-        return SymmetricalLogTransform(self.base,
-                                       self.linthresh, self.linscale)
+        return SymmetricalLogTransform(self.base, self.threshold)
 
 
 class SymmetricalLogScale(ScaleBase):
@@ -517,31 +507,23 @@ class SymmetricalLogScale(ScaleBase):
     positive and negative directions from the origin.
 
     Since the values close to zero tend toward infinity, there is a
-    need to have a range around zero that is linear.  The parameter
-    *linthresh* allows the user to specify the size of this range
-    (-*linthresh*, *linthresh*).
+    need to have a threshold around zero to clip those values.  The parameter
+    *threshold* allows the user to specify the size of this range.
 
     Parameters
     ----------
-    basex, basey : float, default: 10
+    base : float, default: 10
         The base of the logarithm.
 
-    linthreshx, linthreshy : float, default: 2
-        Defines the range ``(-x, x)``, within which the plot is linear.
-        This avoids having the plot go to infinity around zero.
+    threshold : float, default: 1
+        Defines the range ``(-x, x)``, within which the values are
+        clipped to 0. This avoids having the plot go to infinity around zero.
 
-    subsx, subsy : sequence of int
+    subs : sequence of int
         Where to place the subticks between each major tick.
         For example, in a log10 scale: ``[2, 3, 4, 5, 6, 7, 8, 9]`` will place
         8 logarithmically spaced minor ticks between each major tick.
 
-    linscalex, linscaley : float, optional
-        This allows the linear range ``(-linthresh, linthresh)`` to be
-        stretched relative to the logarithmic range. Its value is the number of
-        decades to use for each half of the linear range. For example, when
-        *linscale* == 1.0 (the default), the space used for the positive and
-        negative halves of the linear range will be equal to one decade in
-        the logarithmic range.
     """
     name = 'symlog'
 
@@ -557,16 +539,9 @@ class SymmetricalLogScale(ScaleBase):
         return InvertedSymmetricalLogTransform
 
     def __init__(self, axis, **kwargs):
-        if axis.axis_name == 'x':
-            base = kwargs.pop('basex', 10.0)
-            linthresh = kwargs.pop('linthreshx', 2.0)
-            subs = kwargs.pop('subsx', None)
-            linscale = kwargs.pop('linscalex', 1.0)
-        else:
-            base = kwargs.pop('basey', 10.0)
-            linthresh = kwargs.pop('linthreshy', 2.0)
-            subs = kwargs.pop('subsy', None)
-            linscale = kwargs.pop('linscaley', 1.0)
+        base = kwargs.pop('base', 10.0)
+        threshold = kwargs.pop('threshold', 1.0)
+        subs = kwargs.pop('subs', None)
         if kwargs:
             warn_deprecated(
                 '3.2.0',
@@ -579,16 +554,13 @@ class SymmetricalLogScale(ScaleBase):
             #                 f"argument {next(iter(kwargs))!r}")
 
         if base <= 1.0:
-            raise ValueError("'basex/basey' must be larger than 1")
-        if linthresh <= 0.0:
-            raise ValueError("'linthreshx/linthreshy' must be positive")
-        if linscale <= 0.0:
-            raise ValueError("'linscalex/linthreshy' must be positive")
+            raise ValueError("'base' must be larger than 1")
+        if threshold <= 0:
+            raise ValueError("'threshold' must be positive")
 
-        self._transform = SymmetricalLogTransform(base, linthresh, linscale)
+        self._transform = SymmetricalLogTransform(base, threshold)
         self.base = base
-        self.linthresh = linthresh
-        self.linscale = linscale
+        self.threshold = threshold
         self.subs = subs
 
     def set_default_locators_and_formatters(self, axis):

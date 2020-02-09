@@ -1202,36 +1202,29 @@ class LogNorm(Normalize):
         # docstring inherited.
         super().autoscale_None(np.ma.masked_less_equal(A, 0, copy=False))
 
-
+import matplotlib.scale as mscale
 class SymLogNorm(Normalize):
     """
     The symmetrical logarithmic scale is logarithmic in both the
     positive and negative directions from the origin.
 
     Since the values close to zero tend toward infinity, there is a
-    need to have a range around zero that is linear.  The parameter
-    *linthresh* allows the user to specify the size of this range
-    (-*linthresh*, *linthresh*).
+    need to have a range around zero that is clipped.
     """
-    def __init__(self, linthresh, linscale=1.0,
+    def __init__(self, base, threshold,
                  vmin=None, vmax=None, clip=False):
         """
         Parameters
         ----------
-        linthresh : float
-            The range within which the plot is linear (to avoid having the plot
+        threshold : float
+            The range within which the plot is collapsed (to avoid having the plot
             go to infinity around zero).
-        linscale : float, default: 1
-            This allows the linear range (-*linthresh* to *linthresh*) to be
-            stretched relative to the logarithmic range. Its value is the
-            number of decades to use for each half of the linear range. For
-            example, when *linscale* == 1.0 (the default), the space used for
-            the positive and negative halves of the linear range will be equal
-            to one decade in the logarithmic range.
         """
         Normalize.__init__(self, vmin, vmax, clip)
-        self.linthresh = float(linthresh)
-        self._linscale_adj = (linscale / (1.0 - np.e ** -1))
+        self.base = base
+        self.threshold = threshold
+        self._symLogTransform = mscale.SymmetricalLogTransform(base, threshold)
+        self._invSymLogTransform = mscale.InvertedSymmetricalLogTransform(base, threshold)
         if vmin is not None and vmax is not None:
             self._transform_vmin_vmax()
 
@@ -1263,24 +1256,11 @@ class SymLogNorm(Normalize):
 
     def _transform(self, a):
         """Inplace transformation."""
-        with np.errstate(invalid="ignore"):
-            masked = np.abs(a) > self.linthresh
-        sign = np.sign(a[masked])
-        log = (self._linscale_adj + np.log(np.abs(a[masked]) / self.linthresh))
-        log *= sign * self.linthresh
-        a[masked] = log
-        a[~masked] *= self._linscale_adj
-        return a
+        return self._symLogTransform.transform_non_affine(a)
 
     def _inv_transform(self, a):
         """Inverse inplace Transformation."""
-        masked = np.abs(a) > (self.linthresh * self._linscale_adj)
-        sign = np.sign(a[masked])
-        exp = np.exp(sign * a[masked] / self.linthresh - self._linscale_adj)
-        exp *= sign * self.linthresh
-        a[masked] = exp
-        a[~masked] /= self._linscale_adj
-        return a
+        return self._invSymLogTransform.transform_non_affine(a)
 
     def _transform_vmin_vmax(self):
         """Calculates vmin and vmax in the transformed system."""

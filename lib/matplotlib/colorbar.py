@@ -552,7 +552,7 @@ class ColorbarBase:
                     # by logic in the locator.
                     locator = ticker.SymmetricalLogLocator(
                                       subs=np.arange(1, 10),
-                                      linthresh=self.norm.linthresh,
+                                      threshold=self.norm.threshold,
                                       base=10)
                 else:
                     if mpl.rcParams['_internal.classic_mode']:
@@ -568,7 +568,7 @@ class ColorbarBase:
                 formatter = ticker.LogFormatterSciNotation()
             elif isinstance(self.norm, colors.SymLogNorm):
                 formatter = ticker.LogFormatterSciNotation(
-                                        linthresh=self.norm.linthresh)
+                                        threshold=self.norm.threshold)
             else:
                 formatter = ticker.ScalarFormatter()
         else:

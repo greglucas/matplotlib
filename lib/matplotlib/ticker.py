@@ -848,8 +848,8 @@ class LogFormatter(Formatter):
         avoid crowding. If ``numdec > subset`` then no minor ticks will
         be labeled.
 
-    linthresh : None or float, default: None
-        If a symmetric log scale is in use, its ``linthresh``
+    threshold : None or float, default: None
+        If a symmetric log scale is in use, its ``threshold``
         parameter must be supplied here.
 
     Notes
@@ -880,7 +880,7 @@ class LogFormatter(Formatter):
     """
     def __init__(self, base=10.0, labelOnlyBase=False,
                  minor_thresholds=None,
-                 linthresh=None):
+                 threshold=None):
 
         self._base = float(base)
         self.labelOnlyBase = labelOnlyBase
@@ -891,7 +891,7 @@ class LogFormatter(Formatter):
                 minor_thresholds = (1, 0.4)
         self.minor_thresholds = minor_thresholds
         self._sublabels = None
-        self._linthresh = linthresh
+        self._threshold = threshold
 
     def base(self, base):
         """
@@ -927,10 +927,10 @@ class LogFormatter(Formatter):
             return
 
         # Handle symlog case:
-        linthresh = self._linthresh
-        if linthresh is None:
+        threshold = self._threshold
+        if threshold is None:
             try:
-                linthresh = self.axis.get_transform().linthresh
+                threshold = self.axis.get_transform().threshold
             except AttributeError:
                 pass
 
@@ -938,7 +938,7 @@ class LogFormatter(Formatter):
         if vmin > vmax:
             vmin, vmax = vmax, vmin
 
-        if linthresh is None and vmin <= 0:
+        if threshold is None and vmin <= 0:
             # It's probably a colorbar with
             # a format kwarg setting a LogFormatter in the manner
             # that worked with 1.5.x, but that doesn't work now.
@@ -946,16 +946,12 @@ class LogFormatter(Formatter):
             return
 
         b = self._base
-        if linthresh is not None:  # symlog
+        if threshold is not None:  # symlog
             # Only compute the number of decades in the logarithmic part of the
             # axis
             numdec = 0
-            if vmin < -linthresh:
-                rhs = min(vmax, -linthresh)
-                numdec += math.log(vmin / rhs) / math.log(b)
-            if vmax > linthresh:
-                lhs = max(vmin, linthresh)
-                numdec += math.log(vmax / lhs) / math.log(b)
+            # GML: vmax must equal vmin
+            numdec = 2 * math.log(vmax / threshold) / math.log(b)
         else:
             vmin = math.log(vmin) / math.log(b)
             vmax = math.log(vmax) / math.log(b)
@@ -2505,16 +2501,16 @@ class SymmetricalLogLocator(Locator):
     Determine the tick locations for symmetric log axes
     """
 
-    def __init__(self, transform=None, subs=None, linthresh=None, base=None):
+    def __init__(self, transform=None, subs=None, threshold=None, base=None):
         """Place ticks on the locations ``base**i*subs[j]``."""
         if transform is not None:
             self._base = transform.base
-            self._linthresh = transform.linthresh
-        elif linthresh is not None and base is not None:
+            self._threshold = transform.threshold
+        elif threshold is not None and base is not None:
             self._base = base
-            self._linthresh = linthresh
+            self._threshold = threshold
         else:
-            raise ValueError("Either transform, or both linthresh "
+            raise ValueError("Either transform, or both threshold "
                              "and base, must be provided.")
         if subs is None:
             self._subs = [1.0]
@@ -2537,7 +2533,7 @@ class SymmetricalLogLocator(Locator):
 
     def tick_values(self, vmin, vmax):
         base = self._base
-        linthresh = self._linthresh
+        threshold = self._threshold
 
         if vmax < vmin:
             vmin, vmax = vmax, vmin
@@ -2555,23 +2551,16 @@ class SymmetricalLogLocator(Locator):
         # b) has a tick at 0 and only 0 (we assume t is a small
         # number, and the linear segment is just an implementation
         # detail and not interesting.)
-        #
-        # We could also add ticks at t, but that seems to usually be
-        # uninteresting.
-        #
-        # "simple" mode is when the range falls entirely within (-t,
-        # t) -- it should just display (vmin, 0, vmax)
-        if -linthresh < vmin < vmax < linthresh:
-            # only the linear range is present
-            return [vmin, vmax]
+
+        if -threshold < vmin < vmax < threshold:
+            # only the clipped range is used
+            raise ValueError("vmin and vmax should be outside "
+                             "of the threshold region.")
 
         # Lower log range is present
-        has_a = (vmin < -linthresh)
+        has_a = (vmin < -threshold)
         # Upper log range is present
-        has_c = (vmax > linthresh)
-
-        # Check if linear range is present
-        has_b = (has_a and vmax > -linthresh) or (has_c and vmin < linthresh)
+        has_c = (vmax > threshold)
 
         def get_log_range(lo, hi):
             lo = np.floor(np.log(lo) / np.log(base))
@@ -2581,27 +2570,22 @@ class SymmetricalLogLocator(Locator):
         # Calculate all the ranges, so we can determine striding
         a_lo, a_hi = (0, 0)
         if has_a:
-            a_upper_lim = min(-linthresh, vmax)
+            a_upper_lim = min(-threshold, vmax)
             a_lo, a_hi = get_log_range(abs(a_upper_lim), abs(vmin) + 1)
 
         c_lo, c_hi = (0, 0)
         if has_c:
-            c_lower_lim = max(linthresh, vmin)
+            c_lower_lim = max(threshold, vmin)
             c_lo, c_hi = get_log_range(c_lower_lim, vmax + 1)
 
         # Calculate the total number of integer exponents in a and c ranges
         total_ticks = (a_hi - a_lo) + (c_hi - c_lo)
-        if has_b:
-            total_ticks += 1
         stride = max(total_ticks // (self.numticks - 1), 1)
 
         decades = []
         if has_a:
             decades.extend(-1 * (base ** (np.arange(a_lo, a_hi,
                                                     stride)[::-1])))
-
-        if has_b:
-            decades.append(0.0)
 
         if has_c:
             decades.extend(base ** (np.arange(c_lo, c_hi, stride)))
