@@ -1968,6 +1968,15 @@ class QuadMesh(Collection):
     def get_datalim(self, transData):
         return (self.get_transform() - transData).transform_bbox(self._bbox)
 
+    def get_xydata(self):
+        """
+        Return the x and y vertices of the mesh.
+
+        The shape of the returned coordinates is
+        (*meshWidth* + 1, *meshHeight* + 1, 2).
+        """
+        return self._coordinates
+
     @staticmethod
     def convert_mesh_to_paths(meshWidth, meshHeight, coordinates):
         """

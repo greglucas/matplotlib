@@ -672,6 +672,18 @@ def test_singleton_autolim():
     np.testing.assert_allclose(ax.get_xlim(), [-0.06, 0.06])
 
 
+def test_quadmesh_get_xydata():
+    x = [0, 1, 2]
+    y = [2, 4, 6]
+    z = np.ones(shape=(2, 2))
+    xx, yy = np.meshgrid(x, y)
+    coll = plt.pcolormesh(xx, yy, z)
+
+    # shape (3, 3, 2)
+    coords = np.stack([xx.T, yy.T]).T
+    assert_array_equal(coll.get_xydata(), coords)
+
+
 def test_quadmesh_set_array():
     x = np.arange(4)
     y = np.arange(4)
