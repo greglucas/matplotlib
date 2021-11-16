@@ -1,8 +1,9 @@
 name: Test upcoming dependencies
 
 on:
-  schedule:
-    - cron: "47 3 * * 6"
+  push
+  # schedule:
+  #   - cron: "47 3 * * 6"
 
 env:
   NO_AT_BRIDGE: 1  # Necessary for GTK3 interactive test.
@@ -15,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-    if: github.repository == 'matplotlib/matplotlib'
+    # if: github.repository == 'matplotlib/matplotlib'
 
     strategy:
       fail-fast: false
@@ -141,7 +142,7 @@ jobs:
         run: |
           xvfb-run -a python -mpytest -raR -n auto \
             --maxfail=50 --timeout=300 --durations=25 --log-level=DEBUG \
-            -W error::UserWarning
+            -W error -W ignore::DeprecationWarning:numpy.testing
 
       - uses: actions/upload-artifact@v2
         if: failure()
