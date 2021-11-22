@@ -1,8 +1,9 @@
 name: Test upcoming dependencies
 
 on:
-  schedule:
-    - cron: "47 3 * * 6"
+  push
+  # schedule:
+  #   - cron: "47 3 * * 6"
 
 env:
   NO_AT_BRIDGE: 1  # Necessary for GTK3 interactive test.
@@ -15,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-    if: github.repository == 'matplotlib/matplotlib'
+    # if: github.repository == 'matplotlib/matplotlib'
 
     strategy:
       fail-fast: false
@@ -79,9 +80,6 @@ jobs:
           # possible.
           python -m pip install --upgrade pip setuptools wheel
 
-          # First install the nightly wheels that we want to test against
-          python -m pip install -i https://pypi.anaconda.org/scipy-wheels-nightly/simple numpy
-
           # Install dependencies from PyPI.
           python -m pip install --upgrade $PRE \
             cycler fonttools kiwisolver packaging pillow pyparsing \
@@ -128,6 +126,10 @@ jobs:
             python -c 'import wx' &&
             echo 'wxPython is available' ||
             echo 'wxPython is not available'
+
+      - name: Install the nightly dependencies
+        run: |
+          python -m pip install -i https://pypi.anaconda.org/scipy-wheels-nightly/simple --upgrade numpy pandas
 
       - name: Install Matplotlib
         run: |
