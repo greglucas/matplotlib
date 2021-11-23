@@ -33,6 +33,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Test cat command
+        run: |
+
+
       - name: Install OS dependencies
         run: |
           sudo apt-get update -yy
@@ -98,10 +102,10 @@ jobs:
           # libraries cannot be loaded at runtime, so an actual import is a
           # better check).
           # PyGObject, pycairo, and cariocffi do not install on OSX 10.12.
-           python -m pip install --upgrade pycairo 'cairocffi>=0.8' PyGObject &&
-             python -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk' &&
-             echo 'PyGObject is available' ||
-             echo 'PyGObject is not available'
+          python -m pip install --upgrade pycairo 'cairocffi>=0.8' PyGObject &&
+            python -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk' &&
+            echo 'PyGObject is available' ||
+            echo 'PyGObject is not available'
 
           # There are no functioning wheels available for OSX 10.12 (as of
           # Sept 2020) for either pyqt5 (there are only wheels for 10.13+) or
@@ -141,9 +145,16 @@ jobs:
 
       - name: Run pytest
         run: |
+          # Turn all warnings to errors, except ignore the distutils deprecations and the find_spec warning
+          cat >> pytest.ini << EOF
+          filterwarnings =
+              error
+              ignore:.*distutils:DeprecationWarning
+              ignore:DynamicImporter.find_spec\(\) not found; falling back to find_module\(\):ImportWarning
+          EOF
+
           xvfb-run -a python -mpytest -raR -n auto \
-            --maxfail=50 --timeout=300 --durations=25 --log-level=DEBUG \
-            -W error::UserWarning
+            --maxfail=50 --timeout=300 --durations=25 --log-level=DEBUG
 
       - uses: actions/upload-artifact@v2
         if: failure()
