@@ -93,6 +93,12 @@ class FigureManagerMac(_macosx.FigureManager, FigureManagerBase):
             self.show()
             self.canvas.draw_idle()
 
+    def show(self):
+        # docstring inherited
+        if self.canvas.figure.stale:
+            self.canvas.draw_idle()
+        super().show()
+
     def close(self):
         Gcf.destroy(self)
 
