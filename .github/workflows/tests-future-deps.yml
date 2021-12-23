@@ -84,6 +84,8 @@ jobs:
           # possible.
           python -m pip install --upgrade pip setuptools wheel
 
+          python -m pip install -i https://pypi.anaconda.org/scipy-wheels-nightly/simple --upgrade numpy
+
           # Install dependencies from PyPI.
           python -m pip install --upgrade $PRE \
             cycler fonttools kiwisolver packaging pillow pyparsing \
