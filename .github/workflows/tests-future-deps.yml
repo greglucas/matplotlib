@@ -84,8 +84,6 @@ jobs:
           # possible.
           python -m pip install --upgrade pip setuptools wheel
 
-          python -m pip install -i https://pypi.anaconda.org/scipy-wheels-nightly/simple --upgrade numpy
-
           # Install dependencies from PyPI.
           python -m pip install --upgrade $PRE \
             cycler fonttools kiwisolver packaging pillow pyparsing \
@@ -145,6 +143,9 @@ jobs:
           # All dependencies must have been pre-installed, so that the minver
           # constraints are held.
           python -m pip install --no-deps -e .
+          # Install numpy after matplotlib has already been installed
+          python -m pip install -i https://pypi.anaconda.org/scipy-wheels-nightly/simple --upgrade numpy
+
 
       - name: Run pytest
         run: |
