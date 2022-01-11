@@ -322,44 +322,76 @@ else:
 
 
 def _test_number_of_draws_script():
-    from matplotlib import animation
     import matplotlib.pyplot as plt
 
-    # If blitting is respected, this should result in
-    # only one "draw_event" being emitted
     fig, ax = plt.subplots()
 
-    def animate(i):
-        # Create a new marker every time, instead of updating data
-        # this "misuse" of animate can trip up blitting, but it should
-        # not emit a new draw_event
-        return ax.plot(0, 0)
+    # animated=True tells matplotlib to only draw the artist when we
+    # explicitly request it
+    ln, = ax.plot([0, 1], [1, 2], animated=True)
 
-    # Show the empty figure initially because some backends emit a
-    # draw event on canvas initialization, which we aren't interested
-    # in counting
+    # make sure the window is raised, but the script keeps going
     plt.show(block=False)
     plt.pause(0.1)
-
-    # Connect to draw_event to count the number of events received
+    # Connect to draw_event to count the occurrences
     fig.canvas.mpl_connect('draw_event', print)
 
-    ani = animation.FuncAnimation(
-        fig, animate, frames=10, blit=True, repeat=False)
+    # get copy of entire figure (everything inside fig.bbox) sans animated artist
+    bg = fig.canvas.copy_from_bbox(fig.bbox)
+    # draw the animated artist, this uses a cached renderer
+    ax.draw_artist(ln)
+    # show the result to the screen, this pushes the updated RGBA buffer from the
+    # renderer to the GUI framework so you can see it
+    fig.canvas.blit(fig.bbox)
 
-    plt.show(block=False)
-    # Give the animation some time to draw before closing
-    # calling plt.close() from within the animation causes the
-    # animation timers to be called on a Nonetype object, potentially
-    # causing segfaults or anomalous failures
-    plt.pause(0.5)
+    for j in range(20):
+        # reset the background back in the canvas state, screen unchanged
+        fig.canvas.restore_region(bg)
+        # Create a **new** artist here, this is poor usage of blitting
+        # but good for testing to make sure that this doesn't create
+        # excessive draws
+        ln, = ax.plot([0, 1], [1, 2])
+        # render the artist, updating the canvas state, but not the screen
+        ax.draw_artist(ln)
+        # copy the image to the GUI state, but screen might not changed yet
+        fig.canvas.blit(fig.bbox)
+        # flush any pending GUI events, re-painting the screen if needed
+        fig.canvas.flush_events()
+
+    # Let the event loop process everything before leaving
+    plt.pause(0.1)
 
 
-@pytest.mark.parametrize("env", _get_testable_interactive_backends())
-def test_number_of_draws(env):
-    if env["MPLBACKEND"].startswith("gtk"):
-        # FIXME
-        pytest.skip("GTK animation calls draw too many times")
+_blit_backends = _get_testable_interactive_backends()
+for param in _blit_backends:
+    backend = param.values[0]["MPLBACKEND"]
+    if backend == "gtk3cairo":
+        # copy_from_bbox only works when rendering to an ImageSurface
+        # xfail doesn't work here due to other python errors
+        param.marks.append(
+            pytest.mark.skip(
+                "gtk3cairo does not support blitting"))
+    elif backend == "wx":
+        param.marks.append(
+            pytest.mark.skip("wx does not support blitting"))
+
+
+@pytest.mark.parametrize("env", _blit_backends)
+# subprocesses can struggle to get the display, so rerun
+# a few times
+@pytest.mark.flaky(reruns=4)
+def test_blitting_events(env):
+    # FIXME: It would be nice to test all of these backends
+    # if env["MPLBACKEND"].startswith("gtk"):
+    #     pytest.skip("GTK animation calls draw too many times")
+    # if env["MPLBACKEND"].startswith("wx"):
+    #     pytest.skip("wx animation calls draw too many times")
+    # if env["MPLBACKEND"] == "gtk3cairo":
+    #     pytest.skip("gtk3cairo can only use copy_from_bbox on an ImageSurface")
+    # if env["MPLBACKEND"] == "qtcairo":
+    #     pytest.skip("qtcairo can not get the display on the CI systems")
+    # if env.get("QT_API") == "PySide2":
+    #     pytest.skip("pyside2 can't open display on CI")
 
     proc = subprocess.run(
         [sys.executable, "-c",
@@ -368,8 +400,10 @@ def test_number_of_draws(env):
         env={**os.environ, "SOURCE_DATE_EPOCH": "0", **env},
         timeout=_test_timeout,
         stdout=subprocess.PIPE, universal_newlines=True)
-    if proc.returncode:
-        pytest.fail("The subprocess returned with non-zero exit status "
-                    f"{proc.returncode}.")
-    # Make sure we only got one draw event from the animation
-    assert proc.stdout.count("DrawEvent") == 1
+
+    # Count the number of draw_events we got. We will count some initial
+    # canvas draws (which vary in number by backend), but the critical
+    # check here is that it isn't 20 draws, which would be called if
+    # blitting is not properly implemented
+    ndraws = proc.stdout.count("DrawEvent")
+    assert 0 < ndraws < 5
