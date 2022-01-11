@@ -319,3 +319,57 @@ else:
     if proc.returncode:
         pytest.fail("The subprocess returned with non-zero exit status "
                     f"{proc.returncode}.")
+
+
+def _test_number_of_draws_script():
+    from matplotlib import animation
+    import matplotlib.pyplot as plt
+
+    # If blitting is respected, this should result in
+    # only one "draw_event" being emitted
+    fig, ax = plt.subplots()
+
+    def animate(i):
+        # Create a new marker every time, instead of updating data
+        # this "misuse" of animate can trip up blitting, but it should
+        # not emit a new draw_event
+        return ax.plot(0, 0)
+
+    # Show the empty figure initially because some backends emit a
+    # draw event on canvas initialization, which we aren't interested
+    # in counting
+    plt.show(block=False)
+    plt.pause(0.1)
+
+    # Connect to draw_event to count the number of events received
+    fig.canvas.mpl_connect('draw_event', print)
+
+    ani = animation.FuncAnimation(
+        fig, animate, frames=10, blit=True, repeat=False)
+
+    plt.show(block=False)
+    # Give the animation some time to draw before closing
+    # calling plt.close() from within the animation causes the
+    # animation timers to be called on a Nonetype object, potentially
+    # causing segfaults or anomalous failures
+    plt.pause(0.5)
+
+
+@pytest.mark.parametrize("env", _get_testable_interactive_backends())
+def test_number_of_draws(env):
+    if env["MPLBACKEND"].startswith("gtk"):
+        # FIXME
+        pytest.skip("GTK animation calls draw too many times")
+
+    proc = subprocess.run(
+        [sys.executable, "-c",
+         inspect.getsource(_test_number_of_draws_script)
+         + "\n_test_number_of_draws_script()"],
+        env={**os.environ, "SOURCE_DATE_EPOCH": "0", **env},
+        timeout=_test_timeout,
+        stdout=subprocess.PIPE, universal_newlines=True)
+    if proc.returncode:
+        pytest.fail("The subprocess returned with non-zero exit status "
+                    f"{proc.returncode}.")
+    # Make sure we only got one draw event from the animation
+    assert proc.stdout.count("DrawEvent") == 1
