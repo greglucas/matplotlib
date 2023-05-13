@@ -46,7 +46,6 @@ from matplotlib.backend_bases import (
     DrawEvent, FigureCanvasBase, NonGuiException, MouseButton, _get_renderer)
 import matplotlib._api as _api
 import matplotlib.cbook as cbook
-import matplotlib.colorbar as cbar
 import matplotlib.image as mimage
 
 from matplotlib.axes import Axes
@@ -1239,11 +1238,6 @@ default: %(va)s
         -------
         colorbar : `~matplotlib.colorbar.Colorbar`
 
-        Other Parameters
-        ----------------
-        %(_make_axes_kw_doc)s
-        %(_colormap_kw_doc)s
-
         Notes
         -----
         If *mappable* is a `~.contour.ContourSet`, its *extend* kwarg is
@@ -1270,37 +1264,7 @@ default: %(va)s
         with semi-transparent images (alpha < 1) and colorbar extensions;
         therefore, this workaround is not used by default (see issue #1188).
         """
-
-        if ax is None:
-            ax = getattr(mappable, "axes", None)
-
-        if (self.get_layout_engine() is not None and
-                not self.get_layout_engine().colorbar_gridspec):
-            use_gridspec = False
-        if cax is None:
-            if ax is None:
-                raise ValueError(
-                    'Unable to determine Axes to steal space for Colorbar. '
-                    'Either provide the *cax* argument to use as the Axes for '
-                    'the Colorbar, provide the *ax* argument to steal space '
-                    'from it, or add *mappable* to an Axes.')
-            current_ax = self.gca()
-            if (use_gridspec
-                    and isinstance(ax, mpl.axes._base._AxesBase)
-                    and ax.get_subplotspec()):
-                cax, kwargs = cbar.make_axes_gridspec(ax, **kwargs)
-            else:
-                cax, kwargs = cbar.make_axes(ax, **kwargs)
-            # make_axes calls add_{axes,subplot} which changes gca; undo that.
-            self.sca(current_ax)
-            cax.grid(visible=False, which='both', axis='both')
-
-        NON_COLORBAR_KEYS = [  # remove kws that cannot be passed to Colorbar
-            'fraction', 'pad', 'shrink', 'aspect', 'anchor', 'panchor']
-        cb = cbar.Colorbar(cax, mappable, **{
-            k: v for k, v in kwargs.items() if k not in NON_COLORBAR_KEYS})
-        self.stale = True
-        return cb
+        return mappable.colorbar(cax=cax, ax=ax, use_gridspec=use_gridspec, **kwargs)
 
     def subplots_adjust(self, left=None, bottom=None, right=None, top=None,
                         wspace=None, hspace=None):

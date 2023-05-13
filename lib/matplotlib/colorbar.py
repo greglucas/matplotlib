@@ -315,8 +315,8 @@ class Colorbar:
         elif isinstance(mappable, martist.Artist):
             alpha = mappable.get_alpha()
 
-        mappable.colorbar = self
-        mappable.colorbar_cid = mappable.callbacks.connect(
+        mappable.cbar = self
+        mappable.cbar_cid = mappable.callbacks.connect(
             'changed', self.update_normal)
 
         location_orientation = _get_orientation_from_location(location)
@@ -1023,9 +1023,9 @@ class Colorbar:
 
         self.ax.remove()
 
-        self.mappable.callbacks.disconnect(self.mappable.colorbar_cid)
-        self.mappable.colorbar = None
-        self.mappable.colorbar_cid = None
+        self.mappable.callbacks.disconnect(self.mappable.cbar_cid)
+        self.mappable.cbar = None
+        self.mappable.cbar_cid = None
         # Remove the extension callbacks
         self.ax.callbacks.disconnect(self._extend_cid1)
         self.ax.callbacks.disconnect(self._extend_cid2)

@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib as mpl
 from . import _api, cbook
 from .colors import BoundaryNorm
-from .cm import ScalarMappable
+from matplotlib.cm import ScalarMappable
 from .path import Path
 from .transforms import (Bbox, IdentityTransform, Transform, TransformedBbox,
                          TransformedPatchPath, TransformedPath)
