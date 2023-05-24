@@ -185,6 +185,7 @@ static int wait_for_stdin(void)
 }
 + (WindowServerConnectionManager*)sharedManager;
 - (void)launch:(NSNotification*)notification;
+- (void)receivedData:(NSNotification*)notification;
 @end
 
 @interface Window : NSWindow
@@ -303,6 +304,39 @@ event_loop_is_running(PyObject* self)
     } else {
         Py_RETURN_FALSE;
     }
+}
+
+static PyObject*
+wake_on_fd_write(PyObject* unused, PyObject* args)
+{
+    int fd;
+    if (!PyArg_ParseTuple(args, "i", &fd)) { return NULL; }
+    NSFileHandle* fh = [[NSFileHandle alloc] initWithFileDescriptor: fd];
+    [fh waitForDataInBackgroundAndNotify];
+    [[NSNotificationCenter defaultCenter]
+        addObserver: [WindowServerConnectionManager sharedManager]
+        selector: @selector(receivedData:)
+        name: NSFileHandleDataAvailableNotification
+        object: fh];
+    Py_RETURN_NONE;
+}
+
+static PyObject*
+stop(PyObject* self)
+{
+    [NSApp stop: nil];
+    // Post an event to trigger the actual stopping.
+    [NSApp postEvent: [NSEvent otherEventWithType: NSEventTypeApplicationDefined
+                               location: NSMakePoint(0, 0)
+                               modifierFlags: 0
+                               timestamp: 0
+                               windowNumber: 0
+                               context: nil
+                               subtype: 0
+                               data1: 0
+                               data2: 0]
+           atStart: YES];
+    Py_RETURN_NONE;
 }
 
 static CGFloat _get_device_scale(CGContextRef cr)
@@ -1200,6 +1234,13 @@ static WindowServerConnectionManager *sharedWindowServerConnectionManager = nil;
     CFRunLoopAddSource(runloop, source, kCFRunLoopDefaultMode);
     CFRelease(port);
 }
+
+- (void)receivedData:(NSNotification*)notification
+{
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    PyErr_CheckSignals();
+    PyGILState_Release(gstate);
+}
 @end
 
 @implementation Window
@@ -1961,6 +2002,15 @@ static struct PyModuleDef moduledef = {
          (PyCFunction)event_loop_is_running,
          METH_NOARGS,
          "Return whether the OSX backend has set up the NSApp main event loop."},
+        {"wake_on_fd_write",
+         (PyCFunction)wake_on_fd_write,
+         METH_VARARGS,
+         "Arrange for Python to invoke its signal handlers when (any) data is\n"
+         "written on the file descriptor given as argument."},
+        {"stop",
+         (PyCFunction)stop,
+         METH_NOARGS,
+         "Stop the NSApp."},
         {"show",
          (PyCFunction)show,
          METH_NOARGS,

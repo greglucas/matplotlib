@@ -16,9 +16,10 @@ from PIL import Image
 import pytest
 
 import matplotlib as mpl
-from matplotlib import _c_internal_utils
+from matplotlib import _c_internal_utils, pyplot as plt
 from matplotlib.backend_tools import ToolToggleBase
-from matplotlib.testing import subprocess_run_helper as _run_helper
+from matplotlib.testing import (
+    _WaitForStringPopen, subprocess_run_helper as _run_helper)
 
 
 # Minimal smoke-testing of the backends for which the dependencies are
@@ -613,3 +614,119 @@ def test_figure_leak_20490(env, time_mem):
 
     growth = int(result.stdout)
     assert growth <= acceptable_memory_leakage
+
+
+def _test_sigint_impl(backend, target_name, kwargs):
+    import sys
+    import matplotlib.pyplot as plt
+    import os
+    import threading
+
+    plt.switch_backend(backend)
+
+    def interrupter():
+        if sys.platform == 'win32':
+            import win32api
+            win32api.GenerateConsoleCtrlEvent(0, 0)
+        else:
+            import signal
+            os.kill(os.getpid(), signal.SIGINT)
+
+    target = getattr(plt, target_name)
+    timer = threading.Timer(1, interrupter)
+    fig = plt.figure()
+    fig.canvas.mpl_connect(
+        'draw_event',
+        lambda *args: print('DRAW', flush=True)
+    )
+    fig.canvas.mpl_connect(
+        'draw_event',
+        lambda *args: timer.start()
+    )
+    try:
+        target(**kwargs)
+    except KeyboardInterrupt:
+        print('SUCCESS', flush=True)
+
+
+@pytest.mark.parametrize("backend", ["qtagg", "macosx"])
+@pytest.mark.parametrize("target, kwargs", [
+    ('show', {'block': True}),
+    ('pause', {'interval': 10})
+])
+def test_sigint(backend, target, kwargs):
+    try:
+        plt.switch_backend(backend)
+    except ImportError as exc:
+        pytest.skip(f"Failed to switch to backend {backend} ({exc}).")
+    proc = _WaitForStringPopen(
+        [sys.executable, "-c",
+         inspect.getsource(_test_sigint_impl) +
+         f"\n_test_sigint_impl({backend!r}, {target!r}, {kwargs!r})"])
+    try:
+        proc.wait_for('DRAW')
+        stdout, _ = proc.communicate(timeout=_test_timeout)
+    except Exception:
+        proc.kill()
+        stdout, _ = proc.communicate()
+        raise
+    print(stdout)
+    assert 'SUCCESS' in stdout
+
+
+def _test_other_signal_before_sigint_impl(backend, target_name, kwargs):
+    import signal
+    import matplotlib.pyplot as plt
+
+    plt.switch_backend(backend)
+
+    target = getattr(plt, target_name)
+
+    fig = plt.figure()
+    fig.canvas.mpl_connect('draw_event',
+                           lambda *args: print('DRAW', flush=True))
+
+    timer = fig.canvas.new_timer(interval=1)
+    timer.single_shot = True
+    timer.add_callback(print, 'SIGUSR1', flush=True)
+
+    def custom_signal_handler(signum, frame):
+        timer.start()
+    signal.signal(signal.SIGUSR1, custom_signal_handler)
+
+    try:
+        target(**kwargs)
+    except KeyboardInterrupt:
+        print('SUCCESS', flush=True)
+
+
+@pytest.mark.skipif(sys.platform == 'win32',
+                    reason='No other signal available to send on Windows')
+@pytest.mark.parametrize("backend", ["qtagg", "macosx"])
+@pytest.mark.parametrize("target, kwargs", [
+    ('show', {'block': True}),
+    ('pause', {'interval': 10})
+])
+def test_other_signal_before_sigint(backend, target, kwargs):
+    try:
+        plt.switch_backend(backend)
+    except ImportError as exc:
+        pytest.skip(f"Failed to switch to backend {backend} ({exc}).")
+    proc = _WaitForStringPopen(
+        [sys.executable, "-c",
+         inspect.getsource(_test_other_signal_before_sigint_impl) +
+         "\n_test_other_signal_before_sigint_impl("
+            f"{backend!r}, {target!r}, {kwargs!r})"])
+    try:
+        proc.wait_for('DRAW')
+        os.kill(proc.pid, signal.SIGUSR1)
+        proc.wait_for('SIGUSR1')
+        os.kill(proc.pid, signal.SIGINT)
+        stdout, _ = proc.communicate(timeout=_test_timeout)
+    except Exception:
+        proc.kill()
+        stdout, _ = proc.communicate()
+        raise
+    print(stdout)
+    assert 'SUCCESS' in stdout
+    plt.figure()
