@@ -1141,16 +1141,19 @@ choose_save_file(PyObject* unused, PyObject* args)
 static void _buffer_release(void* info, const void* data, size_t size) {
     PyGILState_STATE gstate = PyGILState_Ensure();
     PyBuffer_Release((Py_buffer *)info);
-    free(info);
+    PyMem_Free(info);
     PyGILState_Release(gstate);
 }
 
 static int _copy_agg_buffer(CGContextRef cr, PyObject *renderer)
 {
-    Py_buffer *buffer = malloc(sizeof(Py_buffer));
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    Py_buffer *buffer = PyMem_Malloc(sizeof(Py_buffer));
+    PyGILState_Release(gstate);
 
     if (PyObject_GetBuffer(renderer, buffer, PyBUF_CONTIG_RO) == -1) {
         PyErr_Print();
+        _buffer_release(buffer, NULL, 0);
         return 1;
     }
 
