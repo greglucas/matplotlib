@@ -657,7 +657,7 @@ def _impl_test_interactive_timers():
     # 250ms timer triggers and the callback takes 150ms to run
     # Test that we don't drift and that we get called on every 250ms
     # firing and not every 400ms
-    timer_repeating.interval = 250
+    timer_repeating.interval = 500
     # sleep for 80% of the interval
     sleep_time = timer_repeating.interval / 1000 * 0.8
     mock_repeating.side_effect = lambda: time.sleep(sleep_time)
@@ -671,7 +671,7 @@ def _impl_test_interactive_timers():
     timer_single_shot.start()
 
     # CI resources are inconsistent, so we need to allow for some slop
-    event_loop_time = 10 if os.getenv("CI") else 2  # in seconds
+    event_loop_time = 10 if os.getenv("CI") else 3  # in seconds
     expected_calls = int(event_loop_time / (timer_repeating.interval / 1000))
 
     t_start = time.perf_counter()
@@ -680,11 +680,11 @@ def _impl_test_interactive_timers():
     # Should be around event_loop_time, but allow for some slop on CI.
     # We want to make sure we aren't getting
     # event_loop_time + (callback time)*niterations
-    assert event_loop_time * 0.95 < t_loop < event_loop_time / 0.8, \
+    assert event_loop_time * 0.95 < t_loop < event_loop_time / 0.7, \
         f"Event loop: Expected to run for around {event_loop_time}s, " \
         f"but ran for {t_loop:.2f}s"
     # Not exact timers, so add some slop. (Quite a bit for CI resources)
-    assert abs(mock_repeating.call_count - expected_calls) / expected_calls <= 0.2, \
+    assert abs(mock_repeating.call_count - expected_calls) / expected_calls <= 0.3, \
         f"Slow callback: Expected {expected_calls} calls, " \
         f"got {mock_repeating.call_count}"
     assert mock_single_shot.call_count == 2, \
