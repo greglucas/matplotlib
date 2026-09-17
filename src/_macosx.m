@@ -1906,6 +1906,7 @@ Timer__timer_start(Timer* self, PyObject* args)
             // A single-shot timer invalidates itself when it fires.  Clear this
             // before the callback, which may start a new timer.
             self->shouldInvalidate = NO;
+            self->timer = nil;
         }
         gil_call_method((PyObject*)self, "_on_timer");
     }];

@@ -101,6 +101,53 @@ def test_asyncio_timer_single_shot():
     assert len(fires) == 1
 
 
+def test_asyncio_completed_single_shot_property_update_does_not_restart():
+    async def run():
+        timer = matplotlib.backends.backend_webagg_core.TimerAsyncio(20)
+        timer.single_shot = True
+        fired = asyncio.Event()
+        calls = 0
+
+        def callback():
+            nonlocal calls
+            calls += 1
+            fired.set()
+
+        timer.add_callback(callback)
+        timer.start()
+        await asyncio.wait_for(fired.wait(), timeout=1)
+
+        timer.interval = 30
+        timer.single_shot = False
+        await asyncio.sleep(0.1)
+        assert calls == 1
+
+        timer.start()
+        await asyncio.sleep(0.1)
+        timer.stop()
+        assert calls > 1
+
+    asyncio.run(run())
+
+
+def test_tornado_completed_single_shot_property_update_does_not_restart():
+    pytest.importorskip("tornado")
+    timer = matplotlib.backends.backend_webagg_core.TimerTornado(20)
+    timer.single_shot = True
+    timer._timer = object()
+    callback = MagicMock()
+    timer.add_callback(callback)
+
+    timer._on_timer_once()
+    assert timer._timer is None
+    callback.assert_called_once_with()
+
+    start = timer._timer_start = MagicMock()
+    timer.interval = 30
+    timer.single_shot = False
+    start.assert_not_called()
+
+
 async def _time_n_fires(interval, callback_s, n, max_wait_s):
     # Collect n fire timestamps, bounded by max_wait_s in case a timer stalls.
     timer = matplotlib.backends.backend_webagg_core.TimerAsyncio(interval * 1000)

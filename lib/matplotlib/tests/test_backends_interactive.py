@@ -675,7 +675,6 @@ def _impl_test_interactive_timers():
     repeating.stop()
     rearm.stop()
     rearm_stopped_at = rearm_mock.call_count
-    single.start()
 
     assert idle_mock.call_count == 0, "A timer fired without being started"
     assert repeating_mock.call_count > 1, "Interval update did not reach the timer"
@@ -683,6 +682,14 @@ def _impl_test_interactive_timers():
         f"Single shot fired {single_mock.call_count} times"
     assert rearm_stopped_at > 1, "Timer did not restart from its callback"
 
+    # Updating a completed single-shot timer must not restart it.
+    single.interval = 75
+    single.single_shot = False
+    fig.canvas.start_event_loop(0.25)
+    assert single_mock.call_count == 1, "Property update restarted a stopped timer"
+
+    single.single_shot = True
+    single.start()
     fig.canvas.start_event_loop(0.25)
     assert single_mock.call_count == 2, \
         f"Restarted single shot fired {single_mock.call_count - 1} times"
