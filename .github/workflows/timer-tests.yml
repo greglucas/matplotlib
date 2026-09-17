@@ -1,5 +1,5 @@
 ---
-name: Timer experiments
+name: Full macOS timer experiment
 
 on:
   push:
@@ -13,12 +13,17 @@ concurrency:
 
 permissions: {}
 
+env:
+  NO_AT_BRIDGE: 1
+  OPENBLAS_NUM_THREADS: 1
+  PYTHONFAULTHANDLER: 1
+
 jobs:
-  timers:
+  tests:
     if: github.repository == 'greglucas/matplotlib'
     permissions:
       contents: read
-    name: ${{ matrix.os }} Python ${{ matrix.python }} (${{ matrix.policy }})
+    name: ${{ matrix.os }} Python ${{ matrix.python }} full xdist suite
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -26,44 +31,80 @@ jobs:
         include:
           - os: macos-14
             python: '3.12'
-            policy: default
+            pygobject: '<3.52.0'
           - os: macos-15
             python: '3.14'
-            policy: default
-          - os: macos-15
-            python: '3.14'
-            policy: latency-critical
+            pygobject: '<3.52.0'
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ matrix.python }}
+          allow-prereleases: true
 
-      - name: Install dependencies
+      - name: Install OS dependencies
         run: |
-          brew install ninja pkg-config
-          python -m pip install --upgrade pip
-          python -m pip install --group build --group test
-          python -m pip install --only-binary=:all: PyQt5 PyQt6 PySide6
-          if [[ "${{ matrix.policy }}" == latency-critical ]]; then
-            python -m pip install pyobjc-framework-Cocoa
-          fi
-          python -m pip install --no-deps --no-build-isolation --editable .
-
-      - name: Run focused timer tests repeatedly
-        env:
-          MPL_TIMER_LATENCY_CRITICAL: ${{ matrix.policy == 'latency-critical' && '1' || '' }}
-          PYTHONFAULTHANDLER: '1'
-        run: |
-          for run in 1 2 3 4 5; do
-            echo "Timer test run ${run}"
-            python ci/run_timer_tests.py -rfEsXR -n 2 --timeout=60 \
-              lib/matplotlib/tests/test_backends_interactive.py::test_interactive_timers \
-              lib/matplotlib/tests/test_backend_webagg.py::test_asyncio_timer_single_shot \
-              lib/matplotlib/tests/test_backend_webagg.py::test_asyncio_completed_single_shot_property_update_does_not_restart \
-              lib/matplotlib/tests/test_backend_webagg.py::test_tornado_completed_single_shot_property_update_does_not_restart \
-              lib/matplotlib/tests/test_backend_webagg.py::test_asyncio_timer_no_drift
+          brew update
+          for python_package in $(brew list | grep python@); do
+            brew unlink ${python_package}
+            brew link --overwrite ${python_package}
           done
+          brew uninstall --ignore-dependencies --force pkg-config@0.29.2
+          brew install ccache ffmpeg ghostscript gobject-introspection gtk4 imagemagick ninja
+          brew install --cask font-noto-sans-cjk font-noto-sans-cjk-sc inkscape
+
+      - name: Cache pip
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/Library/Caches/pip
+          key: ${{ matrix.os }}-py${{ matrix.python }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ matrix.os }}-py${{ matrix.python }}-pip-
+
+      - name: Cache ccache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ${{ matrix.os }}-py${{ matrix.python }}-ccache-${{ hashFiles('src/*') }}
+          restore-keys: |
+            ${{ matrix.os }}-py${{ matrix.python }}-ccache-
+
+      - name: Cache Matplotlib
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cache/matplotlib
+            !~/.cache/matplotlib/tex.cache
+            !~/.cache/matplotlib/test_cache
+          key: 6-${{ matrix.os }}-py${{ matrix.python }}-mpl-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            6-${{ matrix.os }}-py${{ matrix.python }}-mpl-${{ github.ref }}-
+            6-${{ matrix.os }}-py${{ matrix.python }}-mpl-
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade --prefer-binary --group build --group test
+          python -m pip install --upgrade sphinx!=6.1.2
+          python -m pip install --upgrade pycairo 'cairocffi>=0.8' 'PyGObject${{ matrix.pygobject }}'
+          python -m pip install --upgrade --only-binary=:all: PyQt5 PyQt6 PySide6
+
+      - name: Install Matplotlib
+        run: |
+          ccache -s
+          git describe
+          export CPPFLAGS='-fprofile-instr-generate=default.%m.profraw -fcoverage-mapping'
+          python -m pip install --no-deps --no-build-isolation --verbose \
+            --config-settings=setup-args="-DrcParams-backend=Agg" \
+            --editable .[dev]
+
+      - name: Run full pytest suite with all xdist workers
+        run: |
+          pytest -rfEsXR -n auto \
+            --maxfail=50 --timeout=300 --durations=25 \
+            --cov-report=xml --cov=lib --log-level=DEBUG --color=yes
