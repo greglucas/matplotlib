@@ -494,6 +494,15 @@ def _get_integrator(u, v, dmap, minlength, maxlength, integration_direction):
     # rescale velocity onto grid-coordinates for integrations.
     u, v = dmap.data2grid(u, v)
 
+    # ``masked_invalid`` in ``streamplot`` returns masked arrays even when
+    # there are no invalid values.  Keep the mask-aware path when needed, but
+    # avoid the substantial per-sample overhead of masked-array scalar
+    # indexing for the overwhelmingly common unmasked case.
+    if isinstance(u, np.ma.MaskedArray) and not np.ma.is_masked(u):
+        u = u.data
+    if isinstance(v, np.ma.MaskedArray) and not np.ma.is_masked(v):
+        v = v.data
+
     # speed (path length) will be in axes-coordinates
     u_ax = u / (dmap.grid.nx - 1)
     v_ax = v / (dmap.grid.ny - 1)
