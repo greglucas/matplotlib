@@ -237,13 +237,10 @@ jobs:
             Sort-Object FullName | Select-Object -Last 1
           if (-not $dumpbin) { throw 'dumpbin.exe was not found' }
 
-          $ft2font = micromamba run --name mpl-dev python -c `
-            "import matplotlib.ft2font as ft2font; print(ft2font.__file__)"
-          $ft2font = $ft2font.Trim()
-          if (-not (Test-Path $ft2font)) {
-            throw "ft2font extension module was not found at $ft2font"
-          }
-          $dependencies = & $dumpbin.FullName /DEPENDENTS $ft2font
+          $ft2font = Get-ChildItem 'build\cp*\src\ft2font*.pyd' |
+            Select-Object -First 1
+          if (-not $ft2font) { throw 'ft2font extension module was not found' }
+          $dependencies = & $dumpbin.FullName /DEPENDENTS $ft2font.FullName
           $dependencies | Write-Host
           if ($dependencies -match 'freetype.*\.dll') {
             throw 'ft2font unexpectedly depends on a FreeType DLL'
