@@ -205,28 +205,6 @@ jobs:
             -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
             -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force
 
-      - name: Install micromamba
-        shell: pwsh
-        run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'micromamba.tar.bz2'
-          $bin = Join-Path $env:RUNNER_TEMP 'micromamba-bin'
-          New-Item -ItemType Directory -Force $bin | Out-Null
-          Invoke-WebRequest `
-            -Uri 'https://micro.mamba.pm/api/micromamba/win-64/latest' `
-            -OutFile $archive
-          tar -xjf $archive -C $bin 'Library/bin/micromamba.exe'
-          $micromamba = Join-Path $bin 'Library\bin\micromamba.exe'
-          Copy-Item $micromamba (Join-Path $bin 'micromamba.exe')
-          $bin | Out-File -FilePath $env:GITHUB_PATH -Append
-
-      - name: Cache conda packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ${{ runner.temp }}\micromamba\pkgs
-          key: windows-conda-py312-${{ hashFiles('environment.yml') }}
-          restore-keys: |
-            windows-conda-py312-
-
       - name: Cache pip
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
@@ -244,15 +222,23 @@ jobs:
             windows-conda-py312-mpl-${{ github.ref }}-
             windows-conda-py312-mpl-
 
-      - name: Create conda environment
-        shell: pwsh
-        env:
-          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
-        run: |
-          micromamba create --yes --name mpl-dev --file environment.yml `
-            --channel conda-forge python=3.12 pywin32 codecov ffmpeg inkscape
-          micromamba info
-          micromamba list --name mpl-dev
+      - name: Set up micromamba environment
+        uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462  # v2
+        with:
+          environment-file: environment.yml
+          environment-name: mpl-dev
+          create-args: >-
+            python=3.12
+            pywin32
+            codecov
+            ffmpeg
+            inkscape
+          micromamba-version: 2.9.0-0
+          micromamba-root-path: ${{ runner.temp }}\micromamba
+          init-shell: none
+          cache-downloads: true
+          cache-downloads-key: windows-conda-py312-${{ hashFiles('environment.yml') }}
+          cache-environment: false
 
       - name: Build Matplotlib
         shell: pwsh
