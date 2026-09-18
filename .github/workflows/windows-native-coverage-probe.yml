@@ -1,0 +1,129 @@
+---
+name: Windows native coverage probe
+
+# Temporary fork-only workflow for investigating gh-30851.  This is kept
+# separate from the production workflows so that the experiment can be
+# removed without changing any required checks.
+on:
+  push:
+    branches:
+      - ci/windows-native-coverage-probe
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONFAULTHANDLER: 1
+
+jobs:
+  subprocess-timeouts:
+    if: github.repository == 'greglucas/matplotlib'
+    name: "Subprocess tests (native coverage: ${{ matrix.native-coverage }})"
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        native-coverage: [false, true]
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade --group build
+          python -m pip install --prefer-binary --group test --group test-extra
+
+      - name: Build Matplotlib with the Azure coverage flags
+        shell: bash
+        run: |
+          config='--config-settings=setup-args=--vsenv'
+          config="$config --config-settings=setup-args=-Dcpp_link_args=-PROFILE"
+          config="$config --config-settings=setup-args=-Dbuildtype=debug"
+          python -m pip install \
+            --no-build-isolation $config \
+            --verbose --editable .[dev]
+
+      - name: Start native coverage collection
+        if: matrix.native-coverage
+        shell: bash
+        run: |
+          session_id=$(python -c "import uuid; print(uuid.uuid4(), end='')")
+          vs=$(ls -d /c/Program\ Files*/Microsoft\ Visual\ Studio/*/Enterprise)
+          tool="$vs/Common7/IDE/Extensions/Microsoft/CodeCoverage.Console/Microsoft.CodeCoverage.Console.exe"
+
+          echo "Coverage tool: $tool"
+          for extension in build/cp*/src/*.pyd; do
+            "$tool" instrument "$extension" --session-id "$session_id" \
+              --log-level Verbose --log-file instrument.log
+            cat instrument.log
+          done
+
+          "$tool" collect \
+            --session-id "$session_id" --server-mode \
+            --output-format cobertura --output extensions.xml \
+            --log-level Verbose --log-file extensions.log &
+
+          echo "COVERAGE_SESSION_ID=$session_id" >> "$GITHUB_ENV"
+          echo "COVERAGE_TOOL=$tool" >> "$GITHUB_ENV"
+
+      - name: Repeated subprocess-heavy tests
+        id: pytest
+        shell: bash
+        run: |
+          status=0
+          start=$SECONDS
+          for repetition in 1 2 3; do
+            echo "::group::repetition $repetition"
+            python -m pytest -rfEsXR -n 2 --dist load \
+              --maxfail=50 --timeout=300 --durations=25 -vv \
+              --junitxml="junit/test-results-$repetition.xml" \
+              lib/matplotlib/tests/test_backends_interactive.py \
+              lib/matplotlib/tests/test_backend_tk.py \
+              lib/matplotlib/tests/test_backend_webagg.py \
+              lib/matplotlib/tests/test_font_manager.py \
+              lib/matplotlib/tests/test_getattr.py \
+              lib/matplotlib/tests/test_pyplot.py || status=$?
+            echo "::endgroup::"
+          done
+          elapsed=$((SECONDS - start))
+          echo "elapsed-seconds=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "### native coverage: ${{ matrix.native-coverage }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Three repetitions: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Stop native coverage collection
+        if: >-
+          always() &&
+          matrix.native-coverage &&
+          env.COVERAGE_SESSION_ID != ''
+        shell: bash
+        run: |
+          "$COVERAGE_TOOL" shutdown "$COVERAGE_SESSION_ID"
+          cat extensions.log
+
+      - name: Upload timing and coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: windows-native-coverage-${{ matrix.native-coverage }}
+          path: |
+            junit/*.xml
+            extensions.xml
+            extensions.log
+            instrument.log
+          if-no-files-found: warn
