@@ -100,15 +100,23 @@ def test_shared():
     check_shared(axs, share['none'], share['none'])
     plt.close(f)
 
-    # test all option combinations
-    ops = [False, True, 'all', 'none', 'row', 'col', 0, 1]
-    for xo in ops:
-        for yo in ops:
-            f, ((a1, a2), (a3, a4)) = plt.subplots(2, 2, sharex=xo, sharey=yo)
-            axs = [a1, a2, a3, a4]
-            check_shared(axs, share[xo], share[yo])
-            check_ticklabel_visible(axs, visible['x'][xo], visible['y'][yo])
-            plt.close(f)
+    def check_options(xo, yo):
+        f, ((a1, a2), (a3, a4)) = plt.subplots(2, 2, sharex=xo, sharey=yo)
+        axs = [a1, a2, a3, a4]
+        check_shared(axs, share[xo], share[yo])
+        check_ticklabel_visible(axs, visible['x'][xo], visible['y'][yo])
+        plt.close(f)
+
+    # Test all combinations of the distinct sharing modes.
+    ops = ['all', 'none', 'row', 'col']
+    for xo, yo in itertools.product(ops, repeat=2):
+        check_options(xo, yo)
+
+    # Also test every accepted alias independently for both arguments.  A full
+    # cross-product of aliases repeats the same four sharing modes many times.
+    for alias, mode in [(False, 'none'), (True, 'all'), (0, 'none'), (1, 'all')]:
+        check_options(alias, 'row')
+        check_options('col', alias)
 
 
 @pytest.mark.parametrize('remove_ticks', [True, False])
