@@ -1,0 +1,312 @@
+---
+name: Windows tests (migration experiment)
+
+on:
+  push:
+    branches:
+      - ci/windows-gha-parity
+    paths-ignore:
+      - 'doc/**'
+      - 'galleries/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  PYTHONFAULTHANDLER: 1
+  PYTHONIOENCODING: UTF-8
+
+jobs:
+  pip-msvc:
+    # This workflow is intentionally limited to the migration experiment on
+    # Greg's fork.  Remove this condition and the branch-only push trigger
+    # before proposing the workflow upstream.
+    if: github.repository == 'greglucas/matplotlib'
+    permissions:
+      contents: read
+    name: "pip/MSVC: Python ${{ matrix.python-version }} on ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Match Azure's oldest and newest Windows image coverage.
+          - os: windows-2022
+            python-version: '3.12'
+          - os: windows-latest
+            python-version: '3.13'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Cache pip
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: windows-${{ matrix.os }}-py${{ matrix.python-version }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            windows-${{ matrix.os }}-py${{ matrix.python-version }}-pip-
+
+      - name: Install Ninja
+        shell: pwsh
+        run: choco install ninja --yes --no-progress
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade --group build
+          python -m pip install --prefer-binary --group test --group test-extra
+
+      - name: Build Matplotlib with MSVC coverage support
+        shell: pwsh
+        run: |
+          python -m pip install --no-build-isolation --verbose --editable '.[dev]' `
+            --config-settings=setup-args=--vsenv `
+            --config-settings=setup-args=-Dcpp_link_args=-PROFILE `
+            --config-settings=setup-args=-Dbuildtype=debug
+
+      - name: Show environment
+        shell: pwsh
+        run: |
+          Get-ChildItem Env: | Sort-Object Name
+          python -m pip list
+          git describe
+
+      - name: Instrument extension modules and start native coverage collector
+        shell: pwsh
+        run: |
+          $relativeToolPath = @(
+            'Microsoft Visual Studio', '2022', 'Enterprise', 'Common7', 'IDE',
+            'Extensions', 'Microsoft', 'CodeCoverage.Console',
+            'Microsoft.CodeCoverage.Console.exe'
+          ) -join '\'
+          $toolCandidates = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) |
+            ForEach-Object { Join-Path $_ $relativeToolPath }
+          $tool = $toolCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $tool) {
+            throw 'Microsoft.CodeCoverage.Console.exe was not found'
+          }
+
+          $session = [guid]::NewGuid().ToString()
+          "VS_COVERAGE_TOOL=$tool" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "COVERAGE_SESSION_ID=$session" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Coverage tool: $tool"
+          Write-Host "Coverage session: $session"
+
+          $modules = Get-ChildItem 'build/cp*/src/*.pyd'
+          if (-not $modules) {
+            throw 'No extension modules were found to instrument'
+          }
+          foreach ($module in $modules) {
+            Write-Host "Instrumenting $($module.FullName)"
+            & $tool instrument $module.FullName --session-id $session `
+              --log-level Verbose --log-file instrument.log
+            if ($LASTEXITCODE -ne 0) {
+              throw "Instrumentation failed for $($module.FullName)"
+            }
+            Get-Content instrument.log
+          }
+
+          $collector = Start-Process -FilePath $tool -PassThru -NoNewWindow `
+            -ArgumentList @(
+              'collect', '--session-id', $session, '--server-mode',
+              '--output-format', 'cobertura', '--output', 'extensions.xml',
+              '--log-level', 'Verbose', '--log-file', 'extensions.log'
+            )
+          "COVERAGE_COLLECTOR_PID=$($collector.Id)" |
+            Out-File -FilePath $env:GITHUB_ENV -Append
+          Start-Sleep -Seconds 2
+          if ($collector.HasExited) {
+            if (Test-Path extensions.log) { Get-Content extensions.log }
+            throw "Native coverage collector exited with code $($collector.ExitCode)"
+          }
+
+      - name: Run pytest
+        shell: pwsh
+        run: |
+          python -m pytest -rfEsXR -n 2 `
+            --maxfail=50 --timeout=300 --durations=25 `
+            --junitxml=junit/test-results.xml `
+            --cov-report=xml:coverage.xml --cov=lib
+
+      - name: Stop native coverage collector
+        if: always()
+        shell: pwsh
+        run: |
+          if ($env:VS_COVERAGE_TOOL -and $env:COVERAGE_SESSION_ID) {
+            & $env:VS_COVERAGE_TOOL shutdown $env:COVERAGE_SESSION_ID
+          }
+          if ($env:COVERAGE_COLLECTOR_PID) {
+            $collector = Get-Process -Id $env:COVERAGE_COLLECTOR_PID `
+              -ErrorAction SilentlyContinue
+            if ($collector) {
+              $collector.WaitForExit(30000)
+            }
+          }
+          if (Test-Path extensions.log) {
+            Write-Host 'Native coverage collection log'
+            Get-Content extensions.log
+          }
+
+      - name: Upload test and coverage results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: pip-msvc-${{ matrix.os }}-py${{ matrix.python-version }}-results
+          if-no-files-found: warn
+          path: |
+            junit/test-results.xml
+            coverage.xml
+            extensions.xml
+            extensions.log
+            instrument.log
+
+      - name: Upload failed image comparisons
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: pip-msvc-${{ matrix.os }}-py${{ matrix.python-version }}-result-images
+          if-no-files-found: ignore
+          path: result_images
+
+  conda:
+    # Preserve AppVeyor's independently resolved conda-forge environment and
+    # optional backend coverage instead of folding it into the pip matrix.
+    if: github.repository == 'greglucas/matplotlib'
+    permissions:
+      contents: read
+    name: "conda-forge: Python 3.12 on windows-2022"
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 50
+          persist-credentials: false
+
+      - name: Enable Windows long paths
+        shell: pwsh
+        run: |
+          New-ItemProperty `
+            -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
+            -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force
+
+      - name: Install micromamba
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'micromamba.tar.bz2'
+          $bin = Join-Path $env:RUNNER_TEMP 'micromamba-bin'
+          New-Item -ItemType Directory -Force $bin | Out-Null
+          Invoke-WebRequest `
+            -Uri 'https://micro.mamba.pm/api/micromamba/win-64/latest' `
+            -OutFile $archive
+          tar -xjf $archive -C $bin 'Library/bin/micromamba.exe'
+          $micromamba = Join-Path $bin 'Library\bin\micromamba.exe'
+          Copy-Item $micromamba (Join-Path $bin 'micromamba.exe')
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Cache conda packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ runner.temp }}\micromamba\pkgs
+          key: windows-conda-py312-${{ hashFiles('environment.yml') }}
+          restore-keys: |
+            windows-conda-py312-
+
+      - name: Create conda environment
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          micromamba create --yes --name mpl-dev --file environment.yml `
+            --channel conda-forge python=3.12 pywin32 codecov ffmpeg inkscape
+          micromamba info
+          micromamba list --name mpl-dev
+
+      - name: Build Matplotlib
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          $env:LINK = "/LIBPATH:$pwd\lib"
+          micromamba run --name mpl-dev python -m pip install --verbose `
+            --no-build-isolation --editable '.[dev]'
+
+      - name: Verify FreeType is statically linked
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          $vswhere = `
+            "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vswhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem `
+            "$vsInstall\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" |
+            Sort-Object FullName | Select-Object -Last 1
+          if (-not $dumpbin) { throw 'dumpbin.exe was not found' }
+
+          $ft2font = Get-ChildItem 'lib\matplotlib\ft2font*.pyd' |
+            Select-Object -First 1
+          if (-not $ft2font) { throw 'ft2font extension module was not found' }
+          $dependencies = & $dumpbin.FullName /DEPENDENTS $ft2font.FullName
+          $dependencies | Write-Host
+          if ($dependencies -match 'freetype.*\.dll') {
+            throw 'ft2font unexpectedly depends on a FreeType DLL'
+          }
+
+      - name: Verify TkAgg backend
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          micromamba run --name mpl-dev python -c `
+            "import matplotlib as m; m.use('tkagg'); import matplotlib.pyplot as plt; print(plt.get_backend())"
+
+      - name: Run pytest
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          micromamba run --name mpl-dev python -m pytest -rfEsXR -n auto `
+            --timeout=300 --durations=25 --log-level=DEBUG `
+            --junitxml=junit/test-results.xml `
+            --cov-report=xml:coverage-conda.xml --cov=lib
+
+      - name: Generate failed image report
+        if: failure()
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          micromamba run --name mpl-dev python tools/visualize_tests.py --no-browser
+
+      - name: Upload test and coverage results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: conda-windows-2022-py312-results
+          if-no-files-found: warn
+          path: |
+            junit/test-results.xml
+            coverage-conda.xml
+
+      - name: Upload failed image comparisons
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: conda-windows-2022-py312-result-images
+          if-no-files-found: ignore
+          path: result_images
