@@ -205,7 +205,8 @@ jobs:
             codecov
             ffmpeg
             inkscape
-          micromamba-version: 2.9.0-0
+          # 2.9.0 cannot parse the history it writes for this environment.
+          micromamba-version: 2.3.3-0
           micromamba-root-path: ${{ runner.temp }}\micromamba
           init-shell: none
           cache-downloads: true
