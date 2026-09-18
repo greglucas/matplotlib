@@ -226,6 +226,23 @@ jobs:
           restore-keys: |
             windows-conda-py312-
 
+      - name: Cache pip
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: windows-conda-py312-pip-${{ hashFiles('environment.yml') }}
+          restore-keys: |
+            windows-conda-py312-pip-
+
+      - name: Cache Matplotlib
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~\.cache\matplotlib
+          key: windows-conda-py312-mpl-${{ github.ref }}-${{ github.sha }}
+          restore-keys: |
+            windows-conda-py312-mpl-${{ github.ref }}-
+            windows-conda-py312-mpl-
+
       - name: Create conda environment
         shell: pwsh
         env:
