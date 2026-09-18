@@ -86,54 +86,33 @@ jobs:
           git describe
 
       - name: Instrument extension modules and start native coverage collector
-        shell: pwsh
+        shell: bash
         run: |
-          $vswhere = `
-            "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $toolRelativePath = @(
-            'Common7', 'IDE', 'Extensions', 'Microsoft',
-            'CodeCoverage.Console', 'Microsoft.CodeCoverage.Console.exe'
-          ) -join '\'
-          $toolCandidates = & $vswhere -products * -property installationPath |
-            ForEach-Object { Join-Path $_ $toolRelativePath }
-          $tool = $toolCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $tool) {
-            throw 'Microsoft.CodeCoverage.Console.exe was not found'
-          }
+          vswhere='/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe'
+          vs=$("$vswhere" -latest -products '*' -property installationPath | tr -d '\r')
+          tool_dir="$vs/Common7/IDE/Extensions/Microsoft/CodeCoverage.Console"
+          tool=$(cygpath -u "$tool_dir/Microsoft.CodeCoverage.Console.exe")
+          if [[ ! -x $tool ]]; then
+            echo "Microsoft.CodeCoverage.Console.exe was not found at $tool"
+            exit 1
+          fi
 
-          $session = [guid]::NewGuid().ToString()
-          "VS_COVERAGE_TOOL=$tool" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "COVERAGE_SESSION_ID=$session" | Out-File -FilePath $env:GITHUB_ENV -Append
-          Write-Host "Coverage tool: $tool"
-          Write-Host "Coverage session: $session"
+          session_id=$(python -c "import uuid; print(uuid.uuid4(), end='')")
+          echo "VS_COVERAGE_TOOL=$tool" >> "$GITHUB_ENV"
+          echo "COVERAGE_SESSION_ID=$session_id" >> "$GITHUB_ENV"
+          echo "Coverage tool: $tool"
+          echo "Coverage session: $session_id"
 
-          $modules = Get-ChildItem 'build/cp*/src/*.pyd'
-          if (-not $modules) {
-            throw 'No extension modules were found to instrument'
-          }
-          foreach ($module in $modules) {
-            Write-Host "Instrumenting $($module.FullName)"
-            & $tool instrument $module.FullName --session-id $session `
+          for module in build/cp*/src/*.pyd; do
+            echo "Instrumenting $module"
+            "$tool" instrument "$module" --session-id "$session_id" \
               --log-level Verbose --log-file instrument.log
-            if ($LASTEXITCODE -ne 0) {
-              throw "Instrumentation failed for $($module.FullName)"
-            }
-            Get-Content instrument.log
-          }
+            cat instrument.log
+          done
 
-          $collector = Start-Process -FilePath $tool -PassThru -NoNewWindow `
-            -ArgumentList @(
-              'collect', '--session-id', $session, '--server-mode',
-              '--output-format', 'cobertura', '--output', 'extensions.xml',
-              '--log-level', 'Verbose', '--log-file', 'extensions.log'
-            )
-          "COVERAGE_COLLECTOR_PID=$($collector.Id)" |
-            Out-File -FilePath $env:GITHUB_ENV -Append
-          Start-Sleep -Seconds 2
-          if ($collector.HasExited) {
-            if (Test-Path extensions.log) { Get-Content extensions.log }
-            throw "Native coverage collector exited with code $($collector.ExitCode)"
-          }
+          "$tool" collect --session-id "$session_id" --server-mode \
+            --output-format cobertura --output extensions.xml \
+            --log-level Verbose --log-file extensions.log &
 
       - name: Run pytest
         shell: pwsh
@@ -145,22 +124,15 @@ jobs:
 
       - name: Stop native coverage collector
         if: always()
-        shell: pwsh
+        shell: bash
         run: |
-          if ($env:VS_COVERAGE_TOOL -and $env:COVERAGE_SESSION_ID) {
-            & $env:VS_COVERAGE_TOOL shutdown $env:COVERAGE_SESSION_ID
-          }
-          if ($env:COVERAGE_COLLECTOR_PID) {
-            $collector = Get-Process -Id $env:COVERAGE_COLLECTOR_PID `
-              -ErrorAction SilentlyContinue
-            if ($collector) {
-              $collector.WaitForExit(30000)
-            }
-          }
-          if (Test-Path extensions.log) {
-            Write-Host 'Native coverage collection log'
-            Get-Content extensions.log
-          }
+          if [[ -n $VS_COVERAGE_TOOL && -n $COVERAGE_SESSION_ID ]]; then
+            "$VS_COVERAGE_TOOL" shutdown "$COVERAGE_SESSION_ID"
+          fi
+          if [[ -f extensions.log ]]; then
+            echo 'Native coverage collection log'
+            cat extensions.log
+          fi
 
       - name: Upload test and coverage results
         if: always()
