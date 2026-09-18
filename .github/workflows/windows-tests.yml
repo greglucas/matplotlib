@@ -194,24 +194,26 @@ jobs:
             windows-conda-py312-mpl-${{ github.ref }}-
             windows-conda-py312-mpl-
 
-      - name: Set up micromamba environment
-        uses: mamba-org/setup-micromamba@add3a49764cedee8ee24e82dfde87f5bc2914462  # v2
+      - name: Set up micromamba
+        uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39  # v3
         with:
-          environment-file: environment.yml
-          environment-name: mpl-dev
-          create-args: >-
-            python=3.12
-            pywin32
-            codecov
-            ffmpeg
-            inkscape
-          # 2.9.0 cannot parse the history it writes for this environment.
-          micromamba-version: 2.3.3-0
+          micromamba-version: 2.9.0-0
           micromamba-root-path: ${{ runner.temp }}\micromamba
           init-shell: none
           cache-downloads: true
           cache-downloads-key: windows-conda-py312-${{ hashFiles('environment.yml') }}
-          cache-environment: false
+
+      # setup-micromamba runs `micromamba list` after creating an environment.
+      # That command cannot parse the complex requested-spec history written
+      # for environment.yml, although creation and `micromamba run` work.  Keep
+      # creation explicit, as it is in AppVeyor, to avoid the unrelated listing.
+      - name: Create conda environment
+        shell: pwsh
+        env:
+          MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
+        run: |
+          micromamba create --yes --name mpl-dev --file environment.yml `
+            python=3.12 pywin32 codecov ffmpeg inkscape
 
       - name: Build Matplotlib
         shell: pwsh
