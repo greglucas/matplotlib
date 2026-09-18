@@ -268,7 +268,9 @@ jobs:
         env:
           MAMBA_ROOT_PREFIX: ${{ runner.temp }}\micromamba
         run: |
-          micromamba run --name mpl-dev python tools/visualize_tests.py --no-browser
+          if (Test-Path result_images) {
+            micromamba run --name mpl-dev python tools/visualize_tests.py --no-browser
+          }
 
       - name: Upload test and coverage results
         if: always()
