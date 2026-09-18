@@ -507,6 +507,8 @@ def _get_integrator(u, v, dmap, minlength, maxlength, integration_direction):
     u_ax = u / (dmap.grid.nx - 1)
     v_ax = v / (dmap.grid.ny - 1)
     speed = np.ma.sqrt(u_ax ** 2 + v_ax ** 2)
+    if isinstance(speed, np.ma.MaskedArray) and not np.ma.is_masked(speed):
+        speed = speed.data
 
     def forward_time(xi, yi):
         if not dmap.grid.within_grid(xi, yi):
