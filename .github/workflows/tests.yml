@@ -103,6 +103,12 @@ jobs:
           allow-prereleases: true
 
       - name: Install OS dependencies
+        env:
+          # Hosted runners are disposable and their Homebrew metadata is
+          # refreshed with the runner image.  Avoid updating and cleaning the
+          # same installation independently in every macOS matrix job.
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
           case "${{ runner.os }}" in
           Linux)
@@ -160,9 +166,8 @@ jobs:
             fi
             ;;
           macOS)
-            brew update
-            # Periodically, Homebrew updates Python and fails to overwrite the
-            # existing not-managed-by-Homebrew copy without explicitly being told
+            # Homebrew may fail to overwrite the existing
+            # not-managed-by-Homebrew Python copy without explicitly being told
             # to do so. GitHub/Azure continues to avoid fixing their runner images:
             # https://github.com/actions/runner-images/issues/9966
             # so force an overwrite even if there are no Python updates.
