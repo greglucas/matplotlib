@@ -49,46 +49,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name-suffix: "(Minimum Versions)"
-            os: ubuntu-22.04
-            python-version: '3.12'
-            extra-requirements: '-c ci/minver-requirements.txt'
-            delete-font-cache: true
-            # https://github.com/matplotlib/matplotlib/issues/29844
-            pygobject-ver: '<3.52.0'
-          - os: ubuntu-22.04
-            python-version: '3.12'
-            CFLAGS: "-fno-lto"  # Ensure that disabling LTO works.
-            extra-requirements: '--group test-extra'
-            # https://github.com/matplotlib/matplotlib/issues/29844
-            pygobject-ver: '<3.52.0'
-          - name-suffix: "(Extra TeX packages)"
-            os: ubuntu-22.04
-            python-version: '3.13'
-            extra-packages: 'texlive-fonts-extra texlive-lang-cyrillic'
-            # https://github.com/matplotlib/matplotlib/issues/29844
-            pygobject-ver: '<3.52.0'
-          - name-suffix: "Free-threaded"
-            os: ubuntu-22.04
-            python-version: '3.14t'
-            # https://github.com/matplotlib/matplotlib/issues/29844
-            pygobject-ver: '<3.52.0'
           - os: ubuntu-24.04
             python-version: '3.14'
-          - os: ubuntu-24.04-arm
-            python-version: '3.12'
-          - os: macos-14  # This runner is on M1 (arm64) chips.
-            python-version: '3.12'
-            # https://github.com/matplotlib/matplotlib/issues/29732
-            pygobject-ver: '<3.52.0'
-          - os: macos-15  # This runner is on M1 (arm64) chips.
-            python-version: '3.13'
-            # https://github.com/matplotlib/matplotlib/issues/29732
-            pygobject-ver: '<3.52.0'
-          - os: macos-15  # This runner is on M1 (arm64) chips.
-            python-version: '3.14'
-            # https://github.com/matplotlib/matplotlib/issues/29732
-            pygobject-ver: '<3.52.0'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -379,7 +341,9 @@ jobs:
               -instr-profile default.profdata > info.lcov
           fi
       - name: Upload code coverage
-        if: ${{ !cancelled() && github.event_name != 'schedule' }}
+        if: >-
+          ${{ !cancelled() && github.event_name != 'schedule' &&
+              github.repository == 'matplotlib/matplotlib' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
         with:
           name: "${{ matrix.python-version }} ${{ matrix.os }} ${{ matrix.name-suffix }}"
