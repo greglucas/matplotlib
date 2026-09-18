@@ -176,7 +176,7 @@ def _save_figures(object_sets, fmt, usetex=False):
                      marks=[needs_usetex, needs_ghostscript]),
         (("p", "mhip"), "svg", False),
         pytest.param(("mhip",), "svg", True, marks=needs_usetex),
-    ]
+    ], ids=["pdf", "ps", "ps-usetex", "svg", "svg-usetex"]
 )
 def test_determinism_check(object_sets, fmt, usetex):
     """
