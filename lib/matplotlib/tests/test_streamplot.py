@@ -2,6 +2,7 @@ import numpy as np
 from numpy.testing import assert_array_almost_equal
 import pytest
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 from matplotlib.testing.decorators import image_comparison
 import matplotlib.transforms as mtransforms
 
@@ -120,21 +121,25 @@ def test_integration_options():
     th_circ = np.linspace(0, 2 * np.pi, 100)
     for ax, max_val in zip(axs, [0.05, 1, 5]):
         ax_ins = ax.inset_axes([0.0, 0.7, 0.3, 0.35])
-        for ax_curr, is_inset in zip([ax, ax_ins], [False, True]):
-            ax_curr.streamplot(
-                x,
-                y,
-                vx,
-                vy,
-                start_points=seed_pts,
-                broken_streamlines=False,
-                arrowsize=1e-10,
-                linewidth=2 if is_inset else 0.6,
-                color="k",
-                integration_max_step_scale=max_val,
-                integration_max_error_scale=max_val,
-            )
+        stream = ax.streamplot(
+            x,
+            y,
+            vx,
+            vy,
+            start_points=seed_pts,
+            broken_streamlines=False,
+            arrowsize=1e-10,
+            linewidth=0.6,
+            color="k",
+            integration_max_step_scale=max_val,
+            integration_max_error_scale=max_val,
+        )
+        # The inset is a magnified view of the same trajectories.  Reuse the
+        # paths instead of performing the expensive integration a second time.
+        ax_ins.add_collection(LineCollection(
+            stream.lines.get_segments(), color="k", linewidth=2))
 
+        for ax_curr, is_inset in zip([ax, ax_ins], [False, True]):
             # Draw the cylinder
             ax_curr.fill(
                 np.cos(th_circ),
