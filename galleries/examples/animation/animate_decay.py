@@ -21,7 +21,7 @@ import matplotlib.animation as animation
 
 def data_gen():
     for cnt in itertools.count():
-        t = cnt / 10
+        t = cnt / 5
         yield t, np.sin(2*np.pi*t) * np.exp(-t/10.)
 
 
@@ -53,7 +53,7 @@ def run(data):
 
     return line,
 
-# Only save last 100 frames, but run forever
-ani = animation.FuncAnimation(fig, run, data_gen, interval=100, init_func=init,
-                              save_count=100)
+# Only save last 50 frames, but run forever
+ani = animation.FuncAnimation(fig, run, data_gen, interval=200, init_func=init,
+                              save_count=50)
 plt.show()
