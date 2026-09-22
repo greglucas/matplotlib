@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.testing import assert_array_almost_equal
+from numpy.testing import assert_allclose, assert_array_almost_equal
 import pytest
 import matplotlib.pyplot as plt
 from matplotlib.testing.decorators import image_comparison
@@ -240,3 +240,33 @@ def test_streamplot_inputs():  # test no exception occurs.
     # array-likes
     plt.streamplot(range(3), range(3),
                    np.random.rand(3, 3), np.random.rand(3, 3))
+
+
+@pytest.mark.parametrize("masked", [False, True])
+def test_streamplot_masked_array_equivalence(masked):
+    x = y = np.linspace(-1, 1, 20)
+    X, Y = np.meshgrid(x, y)
+    U, V = -Y, X
+
+    mask = np.zeros_like(U, dtype=bool)
+    if masked:
+        mask[8:12, 8:12] = True
+    U_masked = np.ma.array(U, mask=mask)
+    V_masked = np.ma.array(V, mask=mask)
+
+    # A masked value and NaN have the same streamline semantics.  Comparing
+    # against NaNs also makes the no-mask case exercise plain ndarrays.
+    U_array = U.copy()
+    V_array = V.copy()
+    U_array[mask] = np.nan
+    V_array[mask] = np.nan
+
+    fig, axs = plt.subplots(1, 2)
+    stream_array = axs[0].streamplot(x, y, U_array, V_array)
+    stream_masked = axs[1].streamplot(x, y, U_masked, V_masked)
+
+    segments_array = stream_array.lines.get_segments()
+    segments_masked = stream_masked.lines.get_segments()
+    assert len(segments_array) == len(segments_masked)
+    for segment_array, segment_masked in zip(segments_array, segments_masked):
+        assert_allclose(segment_array, segment_masked)
