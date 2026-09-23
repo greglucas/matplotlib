@@ -103,6 +103,10 @@ jobs:
           allow-prereleases: true
 
       - name: Install OS dependencies
+        env:
+          # Avoid homebrew updates to speed up installations
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
         run: |
           case "${{ runner.os }}" in
           Linux)
@@ -160,7 +164,6 @@ jobs:
             fi
             ;;
           macOS)
-            brew update
             # Periodically, Homebrew updates Python and fails to overwrite the
             # existing not-managed-by-Homebrew copy without explicitly being told
             # to do so. GitHub/Azure continues to avoid fixing their runner images:
